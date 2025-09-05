@@ -1,35 +1,87 @@
-import os
+import re
+from pathlib import Path
+import pdfplumber
+import camelot
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from parser import parse_pdfs_to_json
 
-app = FastAPI(title="PDF Section Extractor")
+app = FastAPI()
 
-# Folders
-INPUT_FOLDER = os.path.join(os.getcwd(), "input")
-OUTPUT_FOLDER = os.path.join(os.getcwd(), "output")
-os.makedirs(INPUT_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Root endpoint
+# ------------------ TEXT EXTRACTION ------------------ #
+def extract_text_from_pdf(filepath: str, start: int = None, end: int = None) -> str:
+    """Extracts text from a PDF using pdfplumber (with optional page range)."""
+    text = ""
+    with pdfplumber.open(filepath) as pdf:
+        total_pages = len(pdf.pages)
+
+        # Default: all pages
+        start_page = start if start else 1
+        end_page = end if end else total_pages
+
+        for i in range(start_page - 1, end_page):
+            if i < total_pages:
+                page_text = pdf.pages[i].extract_text()
+                if page_text:
+                    text += page_text + "\n"
+    return text
+
+
+def parse_pdf_text(filepath: str, start: int = None, end: int = None):
+    """Parses text into sections with title + content."""
+    text = extract_text_from_pdf(filepath, start, end)
+
+    pattern = re.compile(
+        r"(?P<title>\d+(\.\d+)*\s+[^\n]+)\n(?P<content>.*?)(?=\n\d+(\.\d+)*\s+|$)",
+        re.S,
+    )
+
+    sections = []
+    for match in pattern.finditer(text):
+        title = match.group("title").strip()
+        content = match.group("content").strip()
+        sections.append({"title": title, "content": content})
+
+    return sections
+
+
+# ------------------ TABLE EXTRACTION ------------------ #
+def extract_tables_from_pdf(filepath: str, start: int = None, end: int = None):
+    """Extract tables from PDF using Camelot."""
+    pages = f"{start}-{end}" if start and end else "all"
+    tables = camelot.read_pdf(filepath, pages=pages)
+
+    extracted_tables = []
+    for i, table in enumerate(tables):
+        extracted_tables.append({
+            "table_no": i + 1,
+            "data": table.df.to_dict(orient="records")  # JSON table
+        })
+    return extracted_tables
+
+
+# ------------------ PIPELINE ------------------ #
+def parse_input_folder(input_dir="input", start: int = None, end: int = None):
+    results = {}
+    for file in Path(input_dir).glob("*.pdf"):
+        if file.is_file():
+            results[file.name] = {
+                "sections": parse_pdf_text(str(file), start, end),
+                "tables": extract_tables_from_pdf(str(file), start, end)
+            }
+    return results
+
+
 @app.get("/")
 def root():
     return {"status": "server running"}
 
-# Extract sections from all PDFs in input folder
-@app.get("/extract_sections_from_input/")
-def extract_sections_from_input():
-    # Check if input folder has PDFs
-    pdf_files = [f for f in os.listdir(INPUT_FOLDER) if f.lower().endswith(".pdf")]
-    if not pdf_files:
-        return JSONResponse(content={"error": "No PDF files found in input folder"}, status_code=404)
 
-    # Parse PDFs
-    parsed_data = parse_pdfs_to_json(INPUT_FOLDER, OUTPUT_FOLDER)
-
-    # Return full extracted data
-    return JSONResponse(content={
-        "message": "PDFs extracted successfully",
-        "parsed_files_count": len(parsed_data),
+@app.get("/index")
+def run_pipeline():
+    # 👇 fixed page range (8–16)
+    parsed_data = parse_input_folder("input", start=8, end=11)
+    return {
+        "status": "success",
+        "processed_pages": "8-11",
         "data": parsed_data
-    }, status_code=200)
+    }

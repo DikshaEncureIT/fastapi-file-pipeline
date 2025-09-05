@@ -21,7 +21,7 @@ print(f"Total tables found: {len(tables)}")
 # Loop through and print each table as a DataFrame
 for i, table in enumerate(tables):
     print(f"\nTable {i+1}")
-    print(table.df)  # table.df is a pandas DataFrame
+    print(table.df)  # table.df is a pandas DataFrame"
 
 # Optionally, save tables to CSV
 for i, table in enumerate(tables):
