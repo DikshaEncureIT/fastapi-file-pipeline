@@ -12,7 +12,7 @@ def root():
 
 @app.get("/index")
 def run_pipeline(use_llm: bool = False):
-    raw_data = parse_input_folder("input", start=1, end=30)
+    raw_data = parse_input_folder("input", start=1, end=20)
 
     if use_llm:
         refined_data = {}
