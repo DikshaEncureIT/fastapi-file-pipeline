@@ -1,6 +1,122 @@
-fastapi
-uvicorn
-python-multipart
-PyPDF2
-pdfplumber
-camelot-py
+# requirements.txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+aiofiles==23.2.1
+openai>=1.0.0
+python-multipart==0.0.6
+
+# client_example.py
+import requests
+import json
+import time
+
+class TemplateMatcherClient:
+    def __init__(self, base_url="http://localhost:8000"):
+        self.base_url = base_url
+    
+    def health_check(self):
+        """Check if the API is healthy"""
+        response = requests.get(f"{self.base_url}/")
+        return response.json()
+    
+    def get_template_keys(self):
+        """Get all template keys"""
+        response = requests.get(f"{self.base_url}/template-keys")
+        return response.json()
+    
+    def match_single_key(self, template_key, use_llm=False, similarity_threshold=0.6):
+        """Match a single template key"""
+        payload = {
+            "template_key": template_key,
+            "use_llm": use_llm,
+            "similarity_threshold": similarity_threshold
+        }
+        response = requests.post(f"{self.base_url}/match", json=payload)
+        return response.json()
+    
+    def match_bulk_keys(self, template_keys, use_llm=False, similarity_threshold=0.6, batch_size=10):
+        """Match multiple template keys"""
+        payload = {
+            "template_keys": template_keys,
+            "use_llm": use_llm,
+            "similarity_threshold": similarity_threshold,
+            "batch_size": batch_size
+        }
+        response = requests.post(f"{self.base_url}/match-bulk", json=payload)
+        return response.json()
+    
+    def match_all_keys(self, use_llm=False, similarity_threshold=0.6, batch_size=10):
+        """Match all template keys"""
+        params = {
+            "use_llm": use_llm,
+            "similarity_threshold": similarity_threshold,
+            "batch_size": batch_size
+        }
+        response = requests.get(f"{self.base_url}/match-all", params=params)
+        return response.json()
+
+def main():
+    # Initialize client
+    client = TemplateMatcherClient()
+    
+    # Health check
+    print("API Health Check:")
+    health = client.health_check()
+    print(json.dumps(health, indent=2))
+    print("-" * 50)
+    
+    # Single key matching example
+    print("Single Key Match Example:")
+    result = client.match_single_key("amendment_of_bid_document", similarity_threshold=0.6)
+    print(json.dumps(result, indent=2))
+    print("-" * 50)
+    
+    # Bulk matching example
+    print("Bulk Match Example:")
+    keys_to_match = [
+        "amendment_of_bid_document",
+        "applicable_law",
+        "bank_guarantee",
+        "bid_preparation_cost"
+    ]
+    
+    start_time = time.time()
+    bulk_result = client.match_bulk_keys(keys_to_match, batch_size=5)
+    end_time = time.time()
+    
+    print(f"Processed {len(keys_to_match)} keys in {end_time - start_time:.2f} seconds")
+    print(f"Success rate: {bulk_result['statistics']['success_rate']:.1f}%")
+    print("-" * 50)
+
+if __name__ == "__main__":
+    main()
+
+# docker-compose.yml (optional)
+version: '3.8'
+
+services:
+  template-matcher-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./unique_titles_template.json:/app/unique_titles_template.json"
+      - "./merged_data.json:/app/merged_data.json"
+    environment:
+      - COHERE_API_KEY=${COHERE_API_KEY}
+    restart: unless-stopped
+
+# Dockerfile (optional)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
